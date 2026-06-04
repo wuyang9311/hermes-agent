@@ -47,6 +47,7 @@ ACP_REGISTRY_MANIFEST = REPO_ROOT / "acp_registry" / "agent.json"
 AUTHOR_MAP = {
     "zhaolei.vc@bytedance.com": "zhaoleibd",
     "kyssta-exe@users.noreply.github.com": "kyssta-exe",
+    "ali.zakaee.1997@gmail.com": "ITheEqualizer",
     "copii.list@gmail.com": "stremtec",
     "solaiagent@gmail.com": "solaitken",
     "prostoandrei9@gmail.com": "vladkvlchk",
