@@ -135,6 +135,7 @@ AUTHOR_MAP = {
     "soju06@users.noreply.github.com": "Soju06",
     "34199905+Soju06@users.noreply.github.com": "Soju06",
     "98262967+Bihruze@users.noreply.github.com": "Bihruze",
+    "wuyang9311@users.noreply.github.com": "wuyang9311",
     "189280367+Lempkey@users.noreply.github.com": "Lempkey",
     "34853915+m0n3r0@users.noreply.github.com": "m0n3r0",
     "leeseoki@makestar.com": "leeseoki0",
