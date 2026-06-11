@@ -7,7 +7,7 @@ license: MIT
 platforms: [linux, macos, windows]
 prerequisites:
   commands: [sqlite3]
-  optional_commands: [psql, mysql, pg_dump, sqlite-utils]
+  optional_commands: [psql, mysql, pg_dump, mysqldump]
 metadata:
   hermes:
     tags: [database, SQL, SQLite, PostgreSQL, MySQL, schema, migration, debugging]
@@ -79,16 +79,17 @@ Always verify the connection before proceeding. If it fails, report the error �
 ### List All Tables with Row Counts
 
 ```bash
-# SQLite
+# SQLite — list tables
 sqlite3 path/to/db.db << 'SQL'
 SELECT name AS table_name FROM sqlite_master
 WHERE type='table' AND name NOT LIKE 'sqlite_%'
 ORDER BY name;
 SQL
 
-# Count rows per table (run only if tables are small; skip for >100k rows)
-sqlite3 path/to/db.db "SELECT '[' || name || '] ' || COUNT(*) FROM pragma_table_info(name);" \
-  $(sqlite3 path/to/db.db "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+# SQLite — count rows per table (shell loop; one sqlite3 call per table)
+for t in $(sqlite3 path/to/db.db "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"); do
+  echo "$t: $(sqlite3 path/to/db.db "SELECT COUNT(*) FROM \"$t\";")"
+done
 ```
 
 ```bash
@@ -101,8 +102,9 @@ FROM pg_stat_user_tables ORDER BY n_live_tup DESC;"
 ```
 
 ```bash
-# MySQL
-mysql -e "SELECT table_name, table_rows FROM information_schema.tables WHERE table_schema='${MYSQL_DATABASE}';"
+# MySQL (replace the vars with your actual connection values)
+mysql -h "${MYSQL_HOST}" -u "${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" \
+  -e "SELECT table_name, table_rows FROM information_schema.tables WHERE table_schema='${MYSQL_DATABASE}';"
 ```
 
 ### Inspect a Specific Table
@@ -120,9 +122,11 @@ sqlite3 path/to/db.db "SELECT name, sql FROM sqlite_master WHERE type='index' AN
 # PostgreSQL
 psql "$DATABASE_URL" -c "\d+ users"
 
-# MySQL
-mysql -e "SHOW CREATE TABLE users\G"
-mysql -e "DESCRIBE users;"
+# MySQL (replace vars with actual connection values)
+mysql -h "${MYSQL_HOST}" -u "${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" \
+  -e "SHOW CREATE TABLE users\\G"
+mysql -h "${MYSQL_HOST}" -u "${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" \
+  -e "DESCRIBE users;"
 ```
 
 ### Find Foreign Key Relationships
@@ -162,10 +166,10 @@ sqlite3 -header -column "file:path/to/db.db?mode=ro" "SELECT id, name, email FRO
 
 ### Write Operations — 3-Step Safety Protocol
 
-**Step 1: Preview impact.** Show what will be affected:
+**Step 1: Preview impact.** Use read-only mode to guarantee no accidental writes:
 
 ```bash
-sqlite3 path/to/db.db "SELECT COUNT(*) AS rows_affected FROM users WHERE email IS NULL;"
+sqlite3 "file:path/to/db.db?mode=ro" "SELECT COUNT(*) AS rows_affected FROM users WHERE email IS NULL;"
 ```
 
 **Step 2: Backup.** Snapshot before mutation:
@@ -191,6 +195,19 @@ sqlite3 path/to/db.db "SELECT COUNT(*) AS still_null FROM users WHERE email IS N
 ```
 
 **Never skip the backup step.** The user must explicitly approve skipping it.
+
+> **Transaction safety:** For multi-table writes or multiple ALTER statements, wrap everything in `BEGIN TRANSACTION` / `COMMIT` (or `ROLLBACK` on error). SQLite auto-commits every DML/DDL statement — without an explicit transaction, a failed multi-step operation can leave the database in a partially-updated, inconsistent state.
+>
+> ```bash
+> sqlite3 path/to/db.db << 'SQL'
+> BEGIN TRANSACTION;
+> UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+> UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+> -- Verify, then commit
+> SELECT 'OK' AS status WHERE (SELECT balance FROM accounts WHERE id = 1) >= 0;
+> COMMIT;
+> SQL
+> ```
 
 ## Migration Patterns
 
@@ -269,8 +286,11 @@ FROM pg_stat_activity WHERE state != 'idle' ORDER BY duration DESC LIMIT 5;"
 ## Data Integrity Checks
 
 ```bash
-# SQLite: run integrity check
+# SQLite: run integrity check (may be slow on large DBs)
 sqlite3 path/to/db.db "PRAGMA integrity_check;"
+
+# SQLite: faster alternative for large databases
+sqlite3 path/to/db.db "PRAGMA quick_check;"
 
 # SQLite: enable foreign keys (often disabled by default in Python)
 sqlite3 path/to/db.db "PRAGMA foreign_keys;"
@@ -298,6 +318,10 @@ SQL
 6. **Using `SELECT *` on large tables without LIMIT.** Always add `LIMIT 10` (or a manageable number) for exploratory queries. Pipe through `| head -20` as a second defense.
 
 7. **Interpolating shell variables into SQL without quoting.** Use heredocs (`<< 'SQL'`) with single-quoted delimiter to prevent shell expansion, or use `sqlite3 -cmd ".param set"` for parameterized queries.
+
+8. **`PRAGMA integrity_check` on large or corrupt databases.** On a multi-GB database or a DB with corruption, `PRAGMA integrity_check;` can take minutes and may hang the process. Consider `PRAGMA quick_check;` for a faster (but less thorough) alternative, or run integrity checks during off-peak hours.
+
+9. **Missing client tools on macOS.** PostgreSQL (`psql`, `pg_dump`) and MySQL (`mysql`, `mysqldump`) may not be pre-installed on macOS. Install with `brew install libpq mysql-client` and follow brew's `--link` or PATH instructions. SQLite (`sqlite3`) is pre-installed on both macOS and Linux.
 
 ## Verification Checklist
 
